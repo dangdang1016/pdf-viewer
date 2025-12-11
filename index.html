@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Node.js PDF 閱讀器 (最終版)</title>
+    <style>
+        body { margin: 0; padding: 20px; text-align: center; font-family: Arial, sans-serif; background-color: #f4f4f4; }
+        h1 { color: #333; }
+        .controls { margin-bottom: 20px; }
+        .controls button { padding: 10px 15px; font-size: 16px; cursor: pointer; border: none; background-color: #007bff; color: white; border-radius: 5px; margin: 0 5px; }
+        .controls span { font-size: 18px; font-weight: bold; margin: 0 15px; }
+        canvas { border: 1px solid #ccc; box-shadow: 0 6px 12px rgba(0,0,0,0.2); display: block; margin: 0 auto; background-color: white; }
+    </style>
+</head>
+<body>
+    <h1>網頁版 PDF 閱讀器範例 (最終版)</h1>
+
+    <div class="controls">
+        <button id="prev">上一頁</button>
+        <span>頁數: <span id="page_num">1</span> / <span id="page_count">?</span></span>
+        <button id="next">下一頁</button>
+    </div>
+
+    <canvas id="the-canvas"></canvas>
+
+    <script type="module">
+        // 載入 PDF.js 模組 (使用 pdf.min.mjs)
+        import * as pdfjsLib from '/pdfjs/build/pdf.min.mjs'; 
+
+        // 設置 Worker 路徑 (使用 pdf.worker.mjs)
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/build/pdf.worker.mjs';
+
+        // --- 核心變數 ---
+        const pdfUrl = '/sample.pdf';
+        let pdfDoc = null,
+            pageNum = 1,
+            pageRendering = false,
+            pageNumPending = null,
+            scale = 1.5,
+            canvas = document.getElementById('the-canvas'),
+            ctx = canvas.getContext('2d');
+
+        // --- 渲染函數 ---
+        function renderPage(num) {
+            pageRendering = true;
+            pdfDoc.getPage(num).then(function(page) {
+                let viewport = page.getViewport({ scale: scale });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                let renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+                let renderTask = page.render(renderContext);
+
+                renderTask.promise.then(function() {
+                    pageRendering = false;
+                    if (pageNumPending !== null) {
+                        renderPage(pageNumPending);
+                        pageNumPending = null;
+                    }
+                });
+            });
+            document.getElementById('page_num').textContent = num;
+        }
+
+        function queueRenderPage(num) {
+            if (pageRendering) {
+                pageNumPending = num;
+            } else {
+                renderPage(num);
+            }
+        }
+
+        // --- 事件處理器 ---
+        function onPrevPage() {
+            if (pageNum <= 1) return;
+            pageNum--;
+            queueRenderPage(pageNum);
+        }
+
+        function onNextPage() {
+            if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
+            pageNum++;
+            queueRenderPage(pageNum);
+        }
+
+        document.getElementById('prev').addEventListener('click', onPrevPage);
+        document.getElementById('next').addEventListener('click', onNextPage);
+
+        // --- 啟動載入 ---
+        pdfjsLib.getDocument(pdfUrl).promise.then(function(pdfDoc_) {
+            pdfDoc = pdfDoc_;
+            document.getElementById('page_count').textContent = pdfDoc.numPages;
+
+            // 初始渲染第一頁
+            renderPage(pageNum);
+        }).catch(function(error) {
+            console.error('載入 PDF 失敗：', error);
+            document.body.innerHTML = '<h1>載入失敗</h1><p>無法載入 PDF 文件。請確保 sample.pdf 存在，並查看控制台錯誤。</p>';
+        });
+
+    </script>
+</body>
+</html>
